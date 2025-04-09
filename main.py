@@ -4,7 +4,7 @@ import asyncio
 from typing import Optional
 from telegram.ext import Application
 from config import config
-from database.session import init_db, session
+from database import init_db, SessionLocal
 from handlers import (
     setup_commands,
     setup_messages,
@@ -22,9 +22,19 @@ async def startup():
     try:
         logger.info("🚀 بدء تشغيل البوت...")
         
-        # تهيئة قاعدة البيانات
+        # تهيئة قاعدة البيانات مع التحقق من الجداول
         await init_db()
-        logger.info("✅ تم تهيئة قاعدة البيانات")
+        
+        # إنشاء جلسة جديدة للتحقق
+        db = SessionLocal()
+        try:
+            from database.models import ClaimedReward
+            if not db.query(ClaimedReward).first():
+                logger.info("جدول claimed_rewards موجود ولكن فارغ")
+        except Exception as e:
+            logger.error(f"خطأ في التحقق من الجداول: {str(e)}")
+        finally:
+            db.close()
         
         # تسجيل الhandlers
         application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
@@ -40,7 +50,7 @@ async def startup():
         return application
         
     except Exception as e:
-        logger.critical(f"فشل في بدء التشغيل: {str(e)}")
+        logger.critical(f"فشل في بدء التشغيل: {str(e)}", exc_info=True)
         raise
 
 async def background_tasks():
@@ -57,7 +67,7 @@ async def background_tasks():
             await asyncio.sleep(3600)  # كل ساعة
             
         except Exception as e:
-            logger.error(f"خطأ في مهام الخلفية: {str(e)}")
+            logger.error(f"خطأ في مهام الخلفية: {str(e)}", exc_info=True)
 
 async def shutdown(application: Application):
     """تنظيف الموارد عند الإغلاق"""
@@ -65,33 +75,41 @@ async def shutdown(application: Application):
         logger.info("🛑 جارِ إيقاف البوت...")
         await application.shutdown()
         await application.updater.stop()
-        await session.close()
+        await SessionLocal.close_all()
         logger.info("✅ تم التنظيف بنجاح")
     except Exception as e:
-        logger.error(f"خطأ أثناء الإيقاف: {str(e)}")
+        logger.error(f"خطأ أثناء الإيقاف: {str(e)}", exc_info=True)
 
 async def run_polling():
     """تشغيل البوت في وضع polling"""
-    application = await startup()
+    application = None
     try:
+        application = await startup()
         logger.info("🔃 بدء التشغيل في وضع polling...")
         await application.run_polling()
+    except Exception as e:
+        logger.critical(f"خطأ رئيسي: {str(e)}", exc_info=True)
     finally:
-        await shutdown(application)
+        if application:
+            await shutdown(application)
 
 async def run_web():
     """تشغيل البوت في وضع webhook"""
     from webhooks.telegram import TelegramWebhookManager
-    application = await startup()
-    webhook_manager = TelegramWebhookManager(application)
-    
+    application = None
     try:
+        application = await startup()
+        webhook_manager = TelegramWebhookManager(application)
+        
         logger.info("🌐 بدء التشغيل في وضع webhook...")
         await webhook_manager.setup_webhook()
         await application.start()
         await asyncio.Future()  # تشغيل إلى ما لا نهاية
+    except Exception as e:
+        logger.critical(f"خطأ رئيسي: {str(e)}", exc_info=True)
     finally:
-        await shutdown(application)
+        if application:
+            await shutdown(application)
 
 if __name__ == "__main__":
     try:
@@ -102,5 +120,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.info("👋 تم إيقاف البوت بواسطة المستخدم")
     except Exception as e:
-        logger.critical(f"خطأ غير متوقع: {str(e)}")
+        logger.critical(f"خطأ غير متوقع: {str(e)}", exc_info=True)
         raise
