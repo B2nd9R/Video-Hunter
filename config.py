@@ -6,6 +6,7 @@ import re
 
 class Settings(BaseSettings):
     # إعدادات التطبيق الأساسية
+    API_SECRET_KEY: str = "pJPwuoXl&DkyPNbED3FRmfP@P&KmAj^p9NodvZMUdOYa!63b"
     ENV: str = "dev"  # or "prod"
     BASE_DIR: Path = Path(__file__).parent
     
