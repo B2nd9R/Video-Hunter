@@ -23,8 +23,9 @@ class DatabaseSeeder:
         self.session = SessionLocal()
         
     async def clear_existing_data(self):
-        """حذف جميع البيانات الحالية"""
+        """حذف جميع البيانات الحالية مع التحقق من وجود الجداول"""
         try:
+            # قائمة الجداول المراد تنظيفها
             tables = [
                 ClaimedReward,
                 UserPoints,
@@ -33,16 +34,21 @@ class DatabaseSeeder:
                 User,
                 SystemLog
             ]
-            
+        
+            # التحقق من وجود كل جدول قبل حذفه
             for table in tables:
-                self.session.query(table).delete()
+                if not self.session.bind.has_table(table.__tablename__):
+                    logger.warning(f"الجدول {table.__tablename__} غير موجود - سيتم تخطيه")
+                    continue
                 
+                self.session.query(table).delete()
+                logger.info(f"تم حذف بيانات الجدول {table.__tablename__}")
+        
             self.session.commit()
-            logger.info("تم حذف البيانات الحالية بنجاح")
         except Exception as e:
             self.session.rollback()
-            logger.error(f"خطأ في حذف البيانات: {str(e)}")
-            raise
+        logger.error(f"خطأ في حذف البيانات: {str(e)}", exc_info=True)
+        raise
 
     async def seed_default_users(self):
         """إنشاء مستخدمين افتراضيين"""
