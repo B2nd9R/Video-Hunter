@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta
 from faker import Faker
 from sqlalchemy.orm import Session
-from .session import engine, get_db
+from .session import SessionLocal, get_sqlalchemy_db
 from .models import (
     User,
     UserSettings,
@@ -20,7 +20,7 @@ class DatabaseSeeder:
     def __init__(self):
         self.fake = Faker()
         self.default_password = "P@ssw0rd123!"
-        self.session = Session(bind=engine)
+        self.session = SessionLocal()
         
     async def clear_existing_data(self):
         """حذف جميع البيانات الحالية"""
@@ -188,6 +188,8 @@ class DatabaseSeeder:
         except Exception as e:
             logger.critical(f"فشل في عملية التهيئة: {str(e)}")
             raise
+        finally:
+            self.session.close()
 
 # -----------------------------------------------------------
 # استخدام الملف مباشرةً للتهيئة:

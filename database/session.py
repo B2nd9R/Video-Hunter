@@ -5,8 +5,21 @@ from typing import Iterator, Optional, Union, Dict, Any
 from datetime import datetime
 import logging
 from config import config
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.ext.declarative import declarative_base
 
 logger = logging.getLogger(__name__)
+
+# إعدادات SQLAlchemy
+DATABASE_URL = config.DATABASE_URL if hasattr(config, 'DATABASE_URL') else "sqlite:///./video_bot.db"
+engine = create_engine(DATABASE_URL)
+SessionLocal = scoped_session(sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+))
+Base = declarative_base()
 
 class DatabaseManager:
     """مدير قاعدة البيانات مع إدارة الاتصال الآمن"""
@@ -50,8 +63,7 @@ class DatabaseManager:
                 last_activity TEXT NOT NULL,
                 total_downloads INTEGER DEFAULT 0,
                 CONSTRAINT unique_user UNIQUE (user_id)
-            )
-            ''')
+            )''')
             
             # جدول التحميلات
             cursor.execute('''
@@ -65,8 +77,7 @@ class DatabaseManager:
                 status TEXT DEFAULT 'completed',
                 FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
                 CONSTRAINT unique_download UNIQUE (user_id, url, download_date)
-            )
-            ''')
+            )''')
             
             # جدول النقاط
             cursor.execute('''
@@ -75,9 +86,8 @@ class DatabaseManager:
                 points INTEGER DEFAULT 0 CHECK(points >= 0),
                 last_daily_bonus DATE,
                 streak_count INTEGER DEFAULT 0 CHECK(streak_count >= 0),
-                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-            )
-            ''')
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE)
+            )''')
             
             conn.commit()
             logger.info("تم تهيئة قاعدة البيانات بنجاح")
@@ -114,6 +124,25 @@ def get_db() -> Iterator[sqlite3.Connection]:
     with db_manager.get_connection() as conn:
         yield conn
 
+def get_sqlalchemy_db():
+    """الحصول على جلسة SQLAlchemy"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 async def init_db():
     """تهيئة قاعدة البيانات (للاستخدام في بدء التشغيل)"""
     db_manager.initialize_database()
+    Base.metadata.create_all(bind=engine)
+
+__all__ = [
+    'Base',
+    'engine',
+    'SessionLocal',
+    'get_db',
+    'get_sqlalchemy_db',
+    'init_db',
+    'db_manager'
+]
