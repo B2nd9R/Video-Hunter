@@ -1,4 +1,26 @@
 services:
+  - type: web
+    name: video-bot-api
+    env: python
+    plan: free  # أو استخدم professional إن كنت بحاجة
+    buildCommand: |
+      pip install -r requirements.txt
+      python -m database.seed
+    startCommand: uvicorn api:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: TELEGRAM_TOKEN
+        value: ${BOT_TOKEN}
+      - key: ENV
+        value: prod
+      - key: SSL_KEY_PATH
+        value: /etc/ssl/private/your-key.key
+      - key: SSL_CERT_PATH
+        value: /etc/ssl/certs/your-cert.crt
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: 10000
+
   - type: worker
     name: video-bot-worker
     env: python
