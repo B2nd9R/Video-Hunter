@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from .models import Base
 import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./video_bot.db")
