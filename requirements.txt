@@ -1,0 +1,9 @@
+python-telegram-bot==20.3
+fastapi==0.95.2
+uvicorn==0.22.0
+yt-dlp==2023.7.6
+sqlalchemy==2.0.19
+python-dotenv==1.0.0
+pydantic==1.10.7
+aiofiles==23.1.0
+python-multipart==0.0.6

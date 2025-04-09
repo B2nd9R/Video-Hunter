@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: video-bot-worker
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+      python -m database.seed
+    startCommand: python main.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        value: ${BOT_TOKEN}
+      - key: ENV
+        value: prod

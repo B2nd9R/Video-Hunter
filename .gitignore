@@ -1,0 +1,24 @@
+# ملفات البيئة
+.env
+
+# ملفات قاعدة البيانات
+*.db
+*.sqlite
+
+# ملفات وسائط
+*.mp4
+*.webm
+*.mkv
+
+# مجلدات النظام
+__pycache__/
+temp/
+chunks/
+*.py[cod]
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+.frontend/
