@@ -1,9 +1,19 @@
+# Core Telegram & API
 python-telegram-bot==20.3
 fastapi==0.95.2
 uvicorn==0.22.0
+python-multipart==0.0.6
+
+# Media & Download
 yt-dlp==2023.7.6
+aiofiles==23.1.0
+
+# Database
 sqlalchemy==2.0.19
+
+# Environment & Validation
 python-dotenv==1.0.0
 pydantic==1.10.7
-aiofiles==23.1.0
-python-multipart==0.0.6
+
+# Development & Testing (مكتبات التطوير والاختبار)
+faker==20.0.0  # لإنتاج بيانات وهمية لأغراض التطوير
