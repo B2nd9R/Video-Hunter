@@ -4,7 +4,7 @@ import asyncio
 from typing import Optional
 from telegram.ext import Application
 from config import config
-from database import init_db, SessionLocal
+from database import init_db, SessionLocal, engine
 from handlers import (
     setup_commands,
     setup_messages,
@@ -13,37 +13,49 @@ from handlers import (
 from utils.logger import setup_logging
 from services.analytics import AnalyticsService
 from services.reward_service import reward_service
+from sqlalchemy import inspect
 
 # تكوين السجلات
 setup_logging()
+
+async def verify_tables_exist():
+    """التحقق من وجود جميع الجداول المطلوبة"""
+    required_tables = ['users', 'claimed_rewards', 'user_points', 'downloads']
+    inspector = inspect(engine)
+    
+    missing_tables = [table for table in required_tables if not inspector.has_table(table)]
+    if missing_tables:
+        raise RuntimeError(f"الجداول الناقصة: {missing_tables}")
 
 async def startup():
     """تهيئة التطبيق عند بدء التشغيل"""
     try:
         logger.info("🚀 بدء تشغيل البوت...")
         
-        # تهيئة قاعدة البيانات مع التحقق من الجداول
+        # 1. تهيئة قاعدة البيانات مع التحقق من الجداول
         await init_db()
         
-        # إنشاء جلسة جديدة للتحقق
+        # 2. التحقق الصارم من وجود الجداول
+        await verify_tables_exist()
+        
+        # 3. التحقق من اتصال قاعدة البيانات
         db = SessionLocal()
         try:
-            from database.models import ClaimedReward
-            if not db.query(ClaimedReward).first():
-                logger.info("جدول claimed_rewards موجود ولكن فارغ")
+            db.execute("SELECT 1")  # اختبار اتصال بسيط
+            logger.info("✅ اتصال قاعدة البيانات نشط")
         except Exception as e:
-            logger.error(f"خطأ في التحقق من الجداول: {str(e)}")
+            raise RuntimeError(f"فشل اختبار اتصال قاعدة البيانات: {str(e)}")
         finally:
             db.close()
         
-        # تسجيل الhandlers
+        # 4. تسجيل الhandlers
         application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
         setup_commands(application)
         setup_messages(application)
         setup_callbacks(application)
         logger.info("✅ تم تسجيل جميع ال handlers")
         
-        # تشغيل خدمات الخلفية
+        # 5. تشغيل خدمات الخلفية
         asyncio.create_task(background_tasks())
         logger.info("✅ تم تشغيل خدمات الخلفية")
         

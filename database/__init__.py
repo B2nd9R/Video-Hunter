@@ -23,21 +23,26 @@ def get_db():
         db.close()
 
 async def init_db():
-    """تهيئة الجداول مع التحقق من وجودها"""
+    """تهيئة الجداول في قاعدة البيانات"""
     try:
         from .models import Base
+        logger.info("جارٍ إنشاء الجداول...")
+        
+        # إنشاء جميع الجداول
         Base.metadata.create_all(bind=engine)
         
+        # التحقق من وجود الجداول الأساسية
+        required_tables = ['users', 'claimed_rewards', 'user_points', 'downloads']
         inspector = inspect(engine)
-        required_tables = ['users', 'user_settings', 'downloads', 'user_points', 'claimed_rewards', 'system_logs']
         
-        missing_tables = [table for table in required_tables if not inspector.has_table(table)]
-        if missing_tables:
-            logger.warning(f"الجداول الناقصة: {missing_tables}")
-            
-        logger.info("✅ تم تهيئة قاعدة البيانات")
+        for table in required_tables:
+            if not inspector.has_table(table):
+                logger.error(f"فشل في إنشاء جدول: {table}")
+                raise RuntimeError(f"الجدول {table} لم يتم إنشاؤه")
+
+        logger.info("✅ تم إنشاء جميع الجداول بنجاح")
     except Exception as e:
-        logger.critical(f"فشل في تهيئة DB: {str(e)}", exc_info=True)
+        logger.critical(f"فشل في تهيئة قاعدة البيانات: {str(e)}", exc_info=True)
         raise
 
 __all__ = ['get_db',

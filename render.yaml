@@ -6,17 +6,17 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-      python -c "from database import init_db; import asyncio; asyncio.run(init_db())"
+      python -c "from database import Base, engine; Base.metadata.create_all(bind=engine); import asyncio; from database.seed import DatabaseSeeder; seeder = DatabaseSeeder(); asyncio.run(seeder.run_seeding())"
     startCommand: uvicorn api:app --host 0.0.0.0 --port 10000
     envVars:
       - key: DATABASE_URL
-        value: sqlite:///./video_bot.db  # أو رابط قاعدة البيانات الخاصة بك
+        value: sqlite:////var/lib/render/video_bot.db  # مسار مطلق للقرص الصلب
       - key: TELEGRAM_TOKEN
         value: ${BOT_TOKEN}
       - key: ENV
         value: prod
       - key: API_SECRET_KEY
-        value: ${API_SECRET_KEY}  # مهم لأغراض الأمان
+        value: ${API_SECRET_KEY}
 
   - type: worker
     name: video-bot-worker
@@ -25,10 +25,10 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: python -m uvicorn api:app --host 0.0.0.0 --port 10000
+    startCommand: python main.py  # تأكد من أن هذا هو الملف الرئيسي الصحيح
     envVars:
       - key: DATABASE_URL
-        value: sqlite:///./video_bot.db
+        value: sqlite:////var/lib/render/video_bot.db
       - key: TELEGRAM_TOKEN
         value: ${BOT_TOKEN}
       - key: ENV

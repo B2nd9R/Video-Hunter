@@ -204,6 +204,14 @@ class DatabaseSeeder:
     async def run_seeding(self):
         """تشغيل عملية التهيئة الكاملة"""
         try:
+            # التحقق من وجود الجداول الأساسية قبل البدء
+            inspector = inspect(self.session.bind)
+            required_tables = ['users', 'claimed_rewards']
+        
+            for table in required_tables:
+                if not inspector.has_table(table):
+                    raise ValueError(f"الجدول {table} غير موجود - يجب تشغيل init_db أولاً")
+            
             logger.info("بدء عملية التهيئة...")
             await self.clear_existing_data()
             await self.seed_default_users()
