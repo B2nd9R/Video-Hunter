@@ -1,7 +1,10 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
-from .models import Base
+from sqlalchemy.ext.declarative import declarative_base
 from config import config
+
+# تعريف Base هنا لتجنب الاستيراد الدائري
+Base = declarative_base()
 
 # تهيئة محرك قاعدة البيانات
 engine = create_engine(config.DATABASE_URL)
@@ -24,8 +27,11 @@ def get_db():
 
 def init_db():
     """تهيئة الجداول في قاعدة البيانات"""
+    # تأخير استيراد النماذج إلى داخل الدالة لتجنب الاعتماد الدائري
+    from .models import User, UserSettings, Download, UserPoints, ClaimedReward, SystemLog
     Base.metadata.create_all(bind=engine)
 
+# تصدير Base للمستخدم في ملفات أخرى
 __all__ = [
     'get_db',
     'init_db',
