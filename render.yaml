@@ -2,33 +2,33 @@ services:
   - type: web
     name: video-bot-api
     env: python
-    plan: free  # أو استخدم professional إن كنت بحاجة
+    plan: free
     buildCommand: |
+      pip install --upgrade pip
       pip install -r requirements.txt
-      python -m database.seed
+      python -c "from database import init_db; import asyncio; asyncio.run(init_db())"
     startCommand: uvicorn api:app --host 0.0.0.0 --port 10000
     envVars:
+      - key: DATABASE_URL
+        value: sqlite:///./video_bot.db  # أو رابط قاعدة البيانات الخاصة بك
       - key: TELEGRAM_TOKEN
         value: ${BOT_TOKEN}
       - key: ENV
         value: prod
-      - key: SSL_KEY_PATH
-        value: /etc/ssl/private/your-key.key
-      - key: SSL_CERT_PATH
-        value: /etc/ssl/certs/your-cert.crt
-      - key: API_HOST
-        value: 0.0.0.0
-      - key: API_PORT
-        value: 10000
+      - key: API_SECRET_KEY
+        value: ${API_SECRET_KEY}  # مهم لأغراض الأمان
 
   - type: worker
     name: video-bot-worker
     env: python
+    plan: free
     buildCommand: |
+      pip install --upgrade pip
       pip install -r requirements.txt
-      python -m database.seed
     startCommand: python -m uvicorn api:app --host 0.0.0.0 --port 10000
     envVars:
+      - key: DATABASE_URL
+        value: sqlite:///./video_bot.db
       - key: TELEGRAM_TOKEN
         value: ${BOT_TOKEN}
       - key: ENV

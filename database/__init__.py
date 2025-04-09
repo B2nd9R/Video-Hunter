@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.ext.declarative import declarative_base
 from config import config
@@ -6,22 +6,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# تعريف Base هنا لتجنب الاستيراد الدائري
 Base = declarative_base()
 
-# تهيئة محرك قاعدة البيانات
 engine = create_engine(config.DATABASE_URL)
-
-# إنشاء جلسة مخصصة
 SessionLocal = scoped_session(sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 ))
 
-# تعريف الدوال الأساسية
 def get_db():
-    """الحصول على جلسة قاعدة البيانات"""
     db = SessionLocal()
     try:
         yield db
@@ -29,30 +23,25 @@ def get_db():
         db.close()
 
 async def init_db():
-    """تهيئة الجداول في قاعدة البيانات مع معالجة الأخطاء"""
+    """تهيئة الجداول مع التحقق من وجودها"""
     try:
-        # تأخير استيراد النماذج إلى داخل الدالة لتجنب الاعتماد الدائري
-        from .models import User, UserSettings, Download, UserPoints, ClaimedReward, SystemLog
-        
-        logger.info("جارٍ إنشاء الجداول...")
+        from .models import Base
         Base.metadata.create_all(bind=engine)
         
-        # التحقق من وجود كل جدول
-        with engine.connect() as conn:
-            for table in Base.metadata.tables.values():
-                if not conn.dialect.has_table(conn, table.name):
-                    logger.warning(f"الجدول {table.name} غير موجود!")
+        inspector = inspect(engine)
+        required_tables = ['users', 'user_settings', 'downloads', 'user_points', 'claimed_rewards', 'system_logs']
         
-        logger.info("✅ تم تهيئة قاعدة البيانات بنجاح")
+        missing_tables = [table for table in required_tables if not inspector.has_table(table)]
+        if missing_tables:
+            logger.warning(f"الجداول الناقصة: {missing_tables}")
+            
+        logger.info("✅ تم تهيئة قاعدة البيانات")
     except Exception as e:
-        logger.critical(f"فشل في تهيئة قاعدة البيانات: {str(e)}")
+        logger.critical(f"فشل في تهيئة DB: {str(e)}", exc_info=True)
         raise
 
-# تصدير Base للمستخدم في ملفات أخرى
-__all__ = [
-    'get_db',
-    'init_db',
-    'Base',
-    'SessionLocal',
-    'engine'
-]
+__all__ = ['get_db',
+            'init_db',
+              'Base',
+                'SessionLocal',
+                  'engine']
