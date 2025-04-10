@@ -37,6 +37,7 @@ AsyncSessionLocal = sessionmaker(
 Base = declarative_base()
 
 async def get_db():
+    """إدارة جلسة قاعدة البيانات بشكل آمن"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -49,6 +50,7 @@ async def get_db():
             await session.close()
 
 async def init_db():
+    """تهيئة الجداول مع التحقق من البيئة"""
     try:
         async with async_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -62,7 +64,13 @@ async def init_db():
             
         logger.info("✅ تم تهيئة قاعدة البيانات بنجاح")
     except Exception as e:
-        logger.critical(f"فشل التهيئة: {str(e)}")
+        logger.critical(f"فشل التهيئة: {str(e)}", exc_info=True)
         raise
 
-__all__ = ['Base', 'async_engine', 'AsyncSessionLocal', 'get_db', 'init_db']
+__all__ = [
+    'Base',
+    'async_engine',
+    'AsyncSessionLocal',
+    'get_db',
+    'init_db'
+]

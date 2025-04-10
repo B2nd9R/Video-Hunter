@@ -1,8 +1,12 @@
-# الأساسيات
+# الأساسيات والتنفيذ
 python-telegram-bot==20.6
 fastapi==0.109.1
 uvicorn[standard]==0.27.0
 python-multipart==0.0.9
+
+# معالجة الوسائط
+yt-dlp==2024.4.9
+aiofiles==23.2.1
 
 # قواعد البيانات
 sqlalchemy[asyncio]==2.0.25
@@ -10,17 +14,15 @@ alembic==1.13.1
 asyncpg==0.29.0
 psycopg2-binary==2.9.9
 
-# البيئة والأمان
+# البيئة والتحقق
 python-dotenv==1.0.1
 pydantic==2.6.4
 pydantic-settings==2.2.1
 
-# معالجة الوسائط
-yt-dlp==2024.4.9
-aiofiles==23.2.1
+# التطوير والاختبار
+faker==24.9.0
 
-# الأدوات المساعدة
+# مكتبات إضافية
 loguru==0.7.2
 httpx==0.25.2
 python-dateutil==2.9.0
-faker==24.9.0

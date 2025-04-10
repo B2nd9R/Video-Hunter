@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Pattern, ClassVar
 import re
 from pydantic_settings import BaseSettings
-from pydantic import AnyUrl, field_validator, Field
+from pydantic import AnyUrl, field_validator
 
 class Settings(BaseSettings):
     # إعدادات التطبيق الأساسية
@@ -14,11 +14,8 @@ class Settings(BaseSettings):
     # إعدادات Telegram
     TELEGRAM_TOKEN: str
     
-    # إعدادات قاعدة البيانات (تأخذ القيمة من المتغيرات البيئية أولاً)
-    DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://user:pass@localhost/dbname",
-        env="DATABASE_URL"
-    )
+    # إعدادات قاعدة البيانات
+    DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost/dbname"
     
     # إعدادات API
     API_HOST: str = "0.0.0.0"
@@ -99,5 +96,4 @@ class Settings(BaseSettings):
         env_file_encoding = 'utf-8'
         case_sensitive = True
 
-# تهيئة الإعدادات
 config = Settings()
