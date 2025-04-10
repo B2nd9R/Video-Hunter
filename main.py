@@ -1,3 +1,5 @@
+# python -m uvicorn main:app --reload
+
 from asyncio.log import logger
 import logging
 import asyncio

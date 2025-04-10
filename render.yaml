@@ -1,35 +1,60 @@
 services:
-  - type: web
-    name: video-bot-api
-    env: python
-    plan: free
+  - type: web  # نوع الخدمة (ويب)
+    name: video-bot-api  # اسم الخدمة
+    env: python  # بيئة التشغيل (بايثون)
+    plan: free  # الخطة المجانية (يمكن تغييرها لـ professional عند النشر للإنتاج)
+    
+    # أوامر البناء (تتنفذ عند كل نشر):
     buildCommand: |
+      # تحديث أدوات البناء أولاً
       pip install --upgrade pip
+      
+      # تثبيت المتطلبات
       pip install -r requirements.txt
-      python -c "from database import Base, engine; Base.metadata.create_all(bind=engine); import asyncio; from database.seed import DatabaseSeeder; seeder = DatabaseSeeder(); asyncio.run(seeder.run_seeding())"
+      
+      # إنشاء الجداول في قاعدة البيانات مع التحقق
+      python -c "
+      from database import init_db;
+      import asyncio;
+      asyncio.run(init_db())
+      "
+    
+    # أمر التشغيل الرئيسي:
     startCommand: uvicorn api:app --host 0.0.0.0 --port 10000
+    
+    # متغيرات البيئة:
     envVars:
       - key: DATABASE_URL
-        value: sqlite:////var/lib/render/video_bot.db  # مسار مطلق للقرص الصلب
+        # استخدم PostgreSQL للإنتاج أو SQLite للتطوير
+        value: postgresql://user:pass@host/dbname  # سيتم استبدالها بالقيمة الفعلية من Render
+        
       - key: TELEGRAM_TOKEN
-        value: ${BOT_TOKEN}
+        value: ${BOT_TOKEN}  # سيتم إدخالها من إعدادات Render
+        
       - key: ENV
-        value: prod
+        value: prod  # بيئة الإنتاج
+        
       - key: API_SECRET_KEY
-        value: ${API_SECRET_KEY}
+        value: ${API_SECRET_KEY}  # مفتاح سري لأغراض الأمان
 
-  - type: worker
+  - type: worker  # خدمة عامل (للمهام الخلفية)
     name: video-bot-worker
     env: python
     plan: free
+    
     buildCommand: |
+      # نفس أوامر البناء للخدمة الرئيسية
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: python main.py  # تأكد من أن هذا هو الملف الرئيسي الصحيح
-    envVars:
+    
+    startCommand: python main.py  # تشغيل الملف الرئيسي
+    
+    envVars:  # نفس متغيرات البيئة
       - key: DATABASE_URL
-        value: sqlite:////var/lib/render/video_bot.db
+        value: sqlite:///video_bot.db  # قاعدة بيانات SQLite للتطوير
+        
       - key: TELEGRAM_TOKEN
         value: ${BOT_TOKEN}
+        
       - key: ENV
         value: prod
