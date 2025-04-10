@@ -1,3 +1,4 @@
+from dataclasses import Field
 import os
 from pathlib import Path
 from typing import Dict, Any, List, Pattern, ClassVar
@@ -13,10 +14,12 @@ class Settings(BaseSettings):
     
     # إعدادات Telegram
     TELEGRAM_TOKEN: str
-    WEBHOOK_URL: AnyUrl | None = None
     
-    # إعدادات قاعدة البيانات
-    DATABASE_URL: str = "postgresql://user:pass@localhost/dbname"
+    # إعدادات قاعدة البيانات (تأخذ القيمة من المتغيرات البيئية أولاً)
+    DATABASE_URL: str = Field(
+        default="postgresql+asyncpg://user:pass@localhost/dbname",
+        env="DATABASE_URL"
+    )
     
     # إعدادات API
     API_HOST: str = "0.0.0.0"
