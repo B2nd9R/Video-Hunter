@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     WEBHOOK_URL: AnyUrl | None = None
     
     # إعدادات قاعدة البيانات
-    DATABASE_URL: str = "sqlite:///video_bot.db"
+    DATABASE_URL: str = "postgresql://user:pass@localhost/dbname"
     
     # إعدادات API
     API_HOST: str = "0.0.0.0"

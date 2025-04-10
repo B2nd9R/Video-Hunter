@@ -1,148 +1,82 @@
-import sqlite3
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Iterator, Optional, Union, Dict, Any
-from datetime import datetime
-import logging
+from sqlalchemy import inspect
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker, declarative_base
 from config import config
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy.ext.declarative import declarative_base
+import logging
+import os
 
 logger = logging.getLogger(__name__)
 
-# إعدادات SQLAlchemy
-DATABASE_URL = config.DATABASE_URL if hasattr(config, 'DATABASE_URL') else "sqlite:///./video_bot.db"
-engine = create_engine(DATABASE_URL)
-SessionLocal = scoped_session(sessionmaker(
+# إعداد محرك قاعدة البيانات غير المتزامن
+DATABASE_URL = os.getenv("DATABASE_URL", config.DATABASE_URL).replace(
+    "postgresql", "postgresql+asyncpg", 1
+)
+
+async_engine = create_async_engine(
+    DATABASE_URL,
+    pool_size=20,
+    max_overflow=10,
+    echo=True if config.ENV == "dev" else False
+)
+
+AsyncSessionLocal = sessionmaker(
+    bind=async_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
     autocommit=False,
-    autoflush=False,
-    bind=engine
-))
+    autoflush=False
+)
+
 Base = declarative_base()
 
-class DatabaseManager:
-    """مدير قاعدة البيانات مع إدارة الاتصال الآمن"""
-    
-    def __init__(self):
-        self.db_path = config.BASE_DIR / "database" / "video_bot.db"
-        self._ensure_db_directory()
-        
-    def _ensure_db_directory(self):
-        """تأكد من وجود مجلد قاعدة البيانات"""
-        self.db_path.parent.mkdir(exist_ok=True)
-    
-    @contextmanager
-    def get_connection(self) -> Iterator[sqlite3.Connection]:
-        """الحصول على اتصال آمن بقاعدة البيانات"""
-        conn = None
+async def get_db() -> AsyncSession:
+    """جلسة قاعدة البيانات غير المتزامنة"""
+    async with AsyncSessionLocal() as session:
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            yield conn
-        except sqlite3.Error as e:
-            logger.error(f"خطأ في قاعدة البيانات: {e}")
+            yield session
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"خطأ في الجلسة: {str(e)}")
             raise
         finally:
-            if conn:
-                conn.close()
-
-    def initialize_database(self):
-        """تهيئة قاعدة البيانات وإنشاء الجداول"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # جدول المستخدمين
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                first_name TEXT,
-                last_name TEXT,
-                join_date TEXT NOT NULL,
-                last_activity TEXT NOT NULL,
-                total_downloads INTEGER DEFAULT 0,
-                CONSTRAINT unique_user UNIQUE (user_id)
-            )''')
-            
-            # جدول التحميلات
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS downloads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                url TEXT NOT NULL,
-                platform TEXT NOT NULL,
-                download_date TEXT NOT NULL,
-                file_size REAL,
-                status TEXT DEFAULT 'completed',
-                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-                CONSTRAINT unique_download UNIQUE (user_id, url, download_date)
-            )''')
-            
-            # جدول النقاط
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_points (
-                user_id INTEGER PRIMARY KEY,
-                points INTEGER DEFAULT 0 CHECK(points >= 0),
-                last_daily_bonus DATE,
-                streak_count INTEGER DEFAULT 0 CHECK(streak_count >= 0),
-                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE)
-            )''')
-            
-            conn.commit()
-            logger.info("تم تهيئة قاعدة البيانات بنجاح")
-
-    async def register_user(self, user_data: Dict[str, Any]):
-        """تسجيل مستخدم جديد"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            now = datetime.now().isoformat()
-            
-            cursor.execute('''
-            INSERT OR IGNORE INTO users 
-            (user_id, username, first_name, last_name, join_date, last_activity)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                user_data['id'],
-                user_data.get('username'),
-                user_data.get('first_name'),
-                user_data.get('last_name'),
-                now,
-                now
-            ))
-            
-            conn.commit()
-            logger.info(f"تم تسجيل/تحديث المستخدم: {user_data['id']}")
-
-# تهيئة مدير قاعدة البيانات
-db_manager = DatabaseManager()
-
-# وظائف مساعدة للاستيراد المباشر
-@contextmanager
-def get_db() -> Iterator[sqlite3.Connection]:
-    """الحصول على اتصال بقاعدة البيانات (للاستخدام المباشر)"""
-    with db_manager.get_connection() as conn:
-        yield conn
-
-def get_sqlalchemy_db():
-    """الحصول على جلسة SQLAlchemy"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+            await session.close()
 
 async def init_db():
-    """تهيئة قاعدة البيانات (للاستخدام في بدء التشغيل)"""
-    db_manager.initialize_database()
-    Base.metadata.create_all(bind=engine)
+    """تهيئة الجداول مع التحقق الشامل"""
+    try:
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            logger.info("✅ تم إنشاء الجداول الأساسية")
+
+            # التحقق من وجود الجداول المطلوبة
+            inspector = await conn.run_sync(inspect)
+            required_tables = [
+                'users', 
+                'downloads', 
+                'user_points', 
+                'claimed_rewards'
+            ]
+            
+            missing_tables = [
+                table 
+                for table in required_tables 
+                if not inspector.has_table(table)
+            ]
+            
+            if missing_tables:
+                error_msg = f"الجداول الناقصة: {', '.join(missing_tables)}"
+                logger.critical(error_msg)
+                raise RuntimeError(error_msg)
+
+    except Exception as e:
+        logger.critical(f"فشل التهيئة: {str(e)}", exc_info=True)
+        raise
 
 __all__ = [
     'Base',
-    'engine',
-    'SessionLocal',
+    'async_engine',
+    'AsyncSessionLocal',
     'get_db',
-    'get_sqlalchemy_db',
-    'init_db',
-    'db_manager'
+    'init_db'
 ]

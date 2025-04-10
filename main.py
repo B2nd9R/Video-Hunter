@@ -1,12 +1,11 @@
 # python -m uvicorn main:app --reload
 
-from asyncio.log import logger
-import logging
 import asyncio
-from typing import Optional
+import logging
+from contextlib import asynccontextmanager
 from telegram.ext import Application
 from config import config
-from database import init_db, SessionLocal, engine
+from database import init_db, get_db, async_engine
 from handlers import (
     setup_commands,
     setup_messages,
@@ -17,122 +16,134 @@ from services.analytics import AnalyticsService
 from services.reward_service import reward_service
 from sqlalchemy import inspect
 
-# تكوين السجلات
+# تكوين نظام السجلات
 setup_logging()
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(_):
+    """إدارة دورة حياة التطبيق"""
+    try:
+        await startup()
+        yield
+    finally:
+        await shutdown()
 
 async def verify_tables_exist():
-    """التحقق من وجود جميع الجداول المطلوبة"""
-    required_tables = ['users', 'claimed_rewards', 'user_points', 'downloads']
-    inspector = inspect(engine)
-    
-    missing_tables = [table for table in required_tables if not inspector.has_table(table)]
-    if missing_tables:
-        raise RuntimeError(f"الجداول الناقصة: {missing_tables}")
+    """التحقق من وجود الجداول الأساسية"""
+    try:
+        async with async_engine.connect() as conn:
+            inspector = await conn.run_sync(inspect)
+            required_tables = [
+                'users', 
+                'downloads', 
+                'user_points', 
+                'claimed_rewards'
+            ]
+            
+            missing = [
+                table 
+                for table in required_tables 
+                if not inspector.has_table(table)
+            ]
+            
+            if missing:
+                raise RuntimeError(f"جداول مفقودة: {', '.join(missing)}")
+                
+    except Exception as e:
+        logger.error(f"فشل التحقق: {str(e)}")
+        raise
 
 async def startup():
-    """تهيئة التطبيق عند بدء التشغيل"""
+    """إجراءات بدء التشغيل"""
     try:
-        logger.info("🚀 بدء تشغيل البوت...")
+        logger.info("🚀 بدء عملية التهيئة...")
         
-        # 1. تهيئة قاعدة البيانات مع التحقق من الجداول
+        # 1. تهيئة قاعدة البيانات
         await init_db()
         
-        # 2. التحقق الصارم من وجود الجداول
+        # 2. التحقق من الجداول
         await verify_tables_exist()
         
-        # 3. التحقق من اتصال قاعدة البيانات
-        db = SessionLocal()
-        try:
-            db.execute("SELECT 1")  # اختبار اتصال بسيط
+        # 3. اختبار الاتصال
+        async with get_db() as db:
+            await db.execute("SELECT 1")
             logger.info("✅ اتصال قاعدة البيانات نشط")
-        except Exception as e:
-            raise RuntimeError(f"فشل اختبار اتصال قاعدة البيانات: {str(e)}")
-        finally:
-            db.close()
         
-        # 4. تسجيل الhandlers
-        application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+        # 4. إعداد تطبيق التيليجرام
+        application = Application.builder().token(config.TELEGRAM_TOKEN).build()
         setup_commands(application)
         setup_messages(application)
         setup_callbacks(application)
-        logger.info("✅ تم تسجيل جميع ال handlers")
+        logger.info("✅ تم إعداد handlers البوت")
         
-        # 5. تشغيل خدمات الخلفية
+        # 5. تشغيل المهام الخلفية
         asyncio.create_task(background_tasks())
-        logger.info("✅ تم تشغيل خدمات الخلفية")
         
         return application
         
     except Exception as e:
-        logger.critical(f"فشل في بدء التشغيل: {str(e)}", exc_info=True)
+        logger.critical(f"فشل التشغيل: {str(e)}", exc_info=True)
         raise
 
 async def background_tasks():
-    """مهام الخلفية الدورية"""
+    """المهام الدورية الخلفية"""
     while True:
         try:
-            # تحديث الإحصائيات كل ساعة
-            stats = await AnalyticsService().get_system_health()
-            logger.debug(f"إحصائيات النظام: {stats}")
+            # تحديث الإحصائيات
+            stats = await AnalyticsService.get_system_stats()
+            logger.debug(f"الإحصائيات: {stats}")
             
-            # تنظيف النقاط المنتهية
+            # تنظيف المكافآت المنتهية
             await reward_service.cleanup_expired_rewards()
             
             await asyncio.sleep(3600)  # كل ساعة
             
         except Exception as e:
-            logger.error(f"خطأ في مهام الخلفية: {str(e)}", exc_info=True)
+            logger.error(f"خطأ في المهام الخلفية: {str(e)}", exc_info=True)
+            await asyncio.sleep(60)
 
-async def shutdown(application: Application):
-    """تنظيف الموارد عند الإغلاق"""
+async def shutdown():
+    """إجراءات إيقاف التشغيل"""
     try:
-        logger.info("🛑 جارِ إيقاف البوت...")
-        await application.shutdown()
-        await application.updater.stop()
-        await SessionLocal.close_all()
-        logger.info("✅ تم التنظيف بنجاح")
+        logger.info("🛑 بدء عملية الإيقاف...")
+        await async_engine.dispose()
+        logger.info("✅ تم إغلاق اتصالات قاعدة البيانات")
     except Exception as e:
         logger.error(f"خطأ أثناء الإيقاف: {str(e)}", exc_info=True)
 
 async def run_polling():
-    """تشغيل البوت في وضع polling"""
+    """وضع التشغيل Polling"""
     application = None
     try:
         application = await startup()
-        logger.info("🔃 بدء التشغيل في وضع polling...")
+        logger.info("🔃 بدء التشغيل في وضع Polling...")
         await application.run_polling()
-    except Exception as e:
-        logger.critical(f"خطأ رئيسي: {str(e)}", exc_info=True)
     finally:
         if application:
-            await shutdown(application)
+            await shutdown()
 
-async def run_web():
-    """تشغيل البوت في وضع webhook"""
-    from webhooks.telegram import TelegramWebhookManager
+async def run_webhook():
+    """وضع التشغيل Webhook"""
+    from webhooks.telegram import webhook_manager
     application = None
     try:
         application = await startup()
-        webhook_manager = TelegramWebhookManager(application)
-        
-        logger.info("🌐 بدء التشغيل في وضع webhook...")
-        await webhook_manager.setup_webhook()
+        logger.info("🌍 بدء التشغيل في وضع Webhook...")
+        await webhook_manager.setup()
         await application.start()
-        await asyncio.Future()  # تشغيل إلى ما لا نهاية
-    except Exception as e:
-        logger.critical(f"خطأ رئيسي: {str(e)}", exc_info=True)
+        await asyncio.Future()  # تشغيل دائم
     finally:
         if application:
-            await shutdown(application)
+            await shutdown()
 
 if __name__ == "__main__":
     try:
         if config.ENV == "prod":
-            asyncio.run(run_web())
+            asyncio.run(run_webhook())
         else:
             asyncio.run(run_polling())
     except KeyboardInterrupt:
-        logger.info("👋 تم إيقاف البوت بواسطة المستخدم")
+        logger.info("👋 تم الإيقاف بواسطة المستخدم")
     except Exception as e:
         logger.critical(f"خطأ غير متوقع: {str(e)}", exc_info=True)
-        raise
