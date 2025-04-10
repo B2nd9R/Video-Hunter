@@ -57,8 +57,12 @@ class DatabaseSeeder:
             else:
                 # منطق PostgreSQL غير المتزامن
                 async with session as async_session:
-                    inspector = await async_engine.run_sync(lambda conn: inspect(conn))
-                    tables = inspector.get_table_names()
+                    # استخدام طريقة آمنة للحصول على أسماء الجداول
+                    tables = []
+                    async with async_engine.begin() as conn:
+                        # استخدام run_sync لتنفيذ العمليات غير المتزامنة في سياق متزامن
+                        tables_result = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+                        tables = tables_result
                     
                     # حذف البيانات من جميع الجداول
                     for table in tables:
@@ -368,18 +372,21 @@ class DatabaseSeeder:
         try:
             logger.info("🚀 بدء عملية التهيئة...")
             
-            # التحقق من وجود الجداول الأساسية
+            # التحقق من وجود الجداول الأساسية - تم تعديل هذا الجزء
             if using_sqlite:
                 # منطق SQLite المتزامن
                 inspector = inspect(async_engine)
                 required_tables = ['users', 'claimed_rewards']
                 missing_tables = [tbl for tbl in required_tables if tbl not in inspector.get_table_names()]
             else:
-                # منطق PostgreSQL غير المتزامن
-                async with async_engine.connect() as conn:
-                    inspector = await conn.run_sync(inspect)
-                    required_tables = ['users', 'claimed_rewards']
-                    missing_tables = [tbl for tbl in required_tables if tbl not in inspector.get_table_names()]
+                # تعديل منطق PostgreSQL ليستخدم نهج متزامن آمن
+                required_tables = ['users', 'claimed_rewards']
+                missing_tables = []
+                
+                async with async_engine.begin() as conn:
+                    # استخدام run_sync بدلاً من الاستدعاء المباشر لـ get_table_names
+                    table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+                    missing_tables = [tbl for tbl in required_tables if tbl not in table_names]
             
             if missing_tables:
                 raise ValueError(f"جداول مفقودة: {', '.join(missing_tables)}")
