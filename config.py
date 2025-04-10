@@ -1,9 +1,9 @@
 import os
 from pathlib import Path
-from pydantic_settings import BaseSettings
-from pydantic import AnyUrl, validator
-from typing import Dict, Any, List, Pattern
+from typing import Dict, Any, List, Pattern, ClassVar
 import re
+from pydantic_settings import BaseSettings
+from pydantic import AnyUrl, field_validator
 
 class Settings(BaseSettings):
     # إعدادات التطبيق الأساسية
@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///video_bot.db"
     
     # إعدادات API
-    API_SECRET_KEY: str
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     
@@ -28,7 +27,7 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_MB: int = 50
     
     # أنماط الروابط المدعومة
-    SUPPORTED_PLATFORMS = {
+    SUPPORTED_PLATFORMS: ClassVar[Dict[str, List[str]]] = {
         "tiktok": [
             r'https?://(www\.)?tiktok\.com/@[\w\.-]+/video/\d+',
             r'https?://(www\.)?tiktok\.com/@[\w\.-]+/video/\d+\?lang=\w+',
@@ -86,8 +85,9 @@ class Settings(BaseSettings):
         return [re.compile(pattern) for patterns in self.SUPPORTED_PLATFORMS.values() for pattern in patterns]
     
     # تحقق من صحة إعدادات الجودة
-    @validator('DEFAULT_QUALITY')
-    def validate_quality(cls, v):
+    @field_validator('DEFAULT_QUALITY')
+    @classmethod
+    def validate_quality(cls, v: str) -> str:
         if v not in ['best', 'medium', 'worst']:
             raise ValueError('الجودة يجب أن تكون واحدة من: best, medium, worst')
         return v
