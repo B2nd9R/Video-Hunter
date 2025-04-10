@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     
     # إعدادات Telegram
     TELEGRAM_TOKEN: str
-    WEBHOOK_URL: AnyUrl = None
+    WEBHOOK_URL: AnyUrl | None = None
     
     # إعدادات قاعدة البيانات
     DATABASE_URL: str = "sqlite:///video_bot.db"
