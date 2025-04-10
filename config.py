@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
-from pydantic import BaseSettings, AnyUrl, validator
+from pydantic_settings import BaseSettings
+from pydantic import AnyUrl, field_validator
 from typing import Dict, Any, List, Pattern
 import re
 

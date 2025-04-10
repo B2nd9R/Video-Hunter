@@ -15,11 +15,12 @@ alembic==1.13.1
 # البيئة والتحقق
 python-dotenv==1.0.1
 pydantic==2.6.4
+pydantic-settings==2.2.1  # أضف هذه الحزمة الجديدة
 
 # التطوير والاختبار
 faker==24.9.0
 
 # مكتبات إضافية
 loguru==0.7.2
-httpx==0.25.2  # تغيير من 0.26.0 إلى 0.25.2 لتتوافق مع python-telegram-bot
+httpx==0.25.2
 python-dateutil==2.9.0
