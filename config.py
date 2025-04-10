@@ -1,10 +1,9 @@
-from dataclasses import Field
 import os
 from pathlib import Path
 from typing import Dict, Any, List, Pattern, ClassVar
 import re
 from pydantic_settings import BaseSettings
-from pydantic import AnyUrl, field_validator
+from pydantic import AnyUrl, field_validator, Field
 
 class Settings(BaseSettings):
     # إعدادات التطبيق الأساسية
