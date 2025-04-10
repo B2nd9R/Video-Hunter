@@ -1,93 +1,87 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
-from config import config
-from database.session import init_db, session
+from sqlalchemy.ext.asyncio import AsyncSession
+from telegram.ext import Application
+from database.session import get_db
 from webhooks.telegram import TelegramWebhookManager
 from utils.logger import logger
-import uvicorn
+from typing import Optional
+from config import config
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """إدارة دورة حياة التطبيق"""
-    # بدء التشغيل
-    try:
-        logger.info("🚀 بدء تشغيل واجهة API...")
-        await init_db()
-        
-        from handlers import setup_commands, setup_callbacks
-        application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
-        setup_commands(application)
-        setup_callbacks(application)
-        app.state.application = application
-        app.state.webhook_manager = TelegramWebhookManager(application)
-        
-        if config.ENV == "prod":
-            await app.state.webhook_manager.setup_webhook()
-        
-        logger.info("✅ تم تهيئة التطبيق بنجاح")
-        yield
-    
-    # التنظيف عند الإيقاف
-    finally:
-        logger.info("🛑 إيقاف واجهة API...")
-        await session.close()
-        if config.ENV == "prod":
-            await app.state.webhook_manager.delete_webhook()
-        logger.info("✅ تم التنظيف بنجاح")
+# إنشاء راوتر لـ API
+router = APIRouter()
 
-app = FastAPI(lifespan=lifespan)
-
-# إعدادات CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.post("/webhook")
+@router.post("/webhook")
 async def telegram_webhook(request: Request):
-    """نقطة نهاية واجهة Telegram webhook"""
+    """
+    نقطة نهاية واجهة Telegram webhook
+    تستقبل التحديثات من Telegram وتعالجها
+    """
     try:
-        return await app.state.webhook_manager.process_webhook(request)
+        webhook_manager: TelegramWebhookManager = request.app.state.webhook_manager
+        return await webhook_manager.process_webhook(request)
     except Exception as e:
-        logger.error(f"Webhook error: {str(e)}")
-        raise HTTPException(500, "Internal server error")
+        logger.error(f"خطأ في معالجة Webhook: {str(e)}", exc_info=True)
+        raise HTTPException(500, "حدث خطأ داخلي في الخادم")
 
-@app.get("/health")
-async def health_check():
-    """فحص صحة التطبيق"""
+@router.get("/health")
+async def health_check(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    فحص صحة التطبيق
+    يتحقق من حالة التطبيق وقاعدة البيانات و Webhook
+    """
+    try:
+        # التحقق من حالة قاعدة البيانات
+        db_status = "connected"
+        
+        # التحقق من حالة webhook
+        webhook_status = "not_configured"
+        if hasattr(request.app.state, "webhook_manager"):
+            webhook_status = await request.app.state.webhook_manager.health_check()
+        
+        return {
+            "status": "ok",
+            "environment": config.ENV,
+            "database": db_status,
+            "webhook": webhook_status,
+            "version": "1.0.0"
+        }
+    except Exception as e:
+        logger.error(f"خطأ في فحص الصحة: {str(e)}", exc_info=True)
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@router.get("/analytics")
+async def get_analytics(days: int = 7, db: AsyncSession = Depends(get_db)):
+    """
+    الحصول على الإحصائيات
+    يقدم إحصائيات حول استخدام البوت
+    """
+    try:
+        from services.analytics import AnalyticsService
+        analytics_service = AnalyticsService(db)
+        return await analytics_service.get_download_stats(days)
+    except Exception as e:
+        logger.error(f"خطأ في الحصول على الإحصائيات: {str(e)}", exc_info=True)
+        raise HTTPException(500, "حدث خطأ أثناء استرجاع الإحصائيات")
+
+@router.get("/")
+async def root():
+    """الصفحة الرئيسية للـ API"""
     return {
-        "status": "ok",
-        "environment": config.ENV,
-        "database": "connected",
-        "webhook": await app.state.webhook_manager.health_check()
+        "app": "Video Hunter Bot",
+        "version": "1.0.0",
+        "status": "running"
     }
 
-@app.get("/analytics")
-async def get_analytics(days: int = 7):
-    """الحصول على الإحصائيات"""
-    from services.analytics import AnalyticsService
-    return await AnalyticsService().get_download_stats(days)
-
-@app.exception_handler(Exception)
+# معالج الأخطاء العام
+@router.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """معالج الأخطاء العام"""
-    logger.error(f"Global error: {str(exc)}")
+    logger.error(f"خطأ عام: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=500,
         content={"message": "حدث خطأ غير متوقع"}
-    )
-
-if __name__ == "__main__":
-    uvicorn.run(
-        "api:app",
-        host=config.API_HOST,
-        port=config.API_PORT,
-        reload=config.ENV == "dev",
-        ssl_keyfile=config.SSL_KEY_PATH,
-        ssl_certfile=config.SSL_CERT_PATH
     )

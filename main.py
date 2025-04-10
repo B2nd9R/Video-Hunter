@@ -1,149 +1,92 @@
 # python -m uvicorn main:app --reload
 
-import asyncio
-import logging
-from contextlib import asynccontextmanager
 from telegram.ext import Application
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from config import config
-from database import init_db, get_db, async_engine
-from handlers import (
-    setup_commands,
-    setup_messages,
-    setup_callbacks
-)
-from utils.logger import setup_logging
-from services.analytics import AnalyticsService
-from services.reward_service import reward_service
-from sqlalchemy import inspect
-
-# تكوين نظام السجلات
-setup_logging()
-logger = logging.getLogger(__name__)
+from database.session import init_db, using_sqlite
+from webhooks.telegram import TelegramWebhookManager
+from utils.logger import logger
+import uvicorn
+import os
 
 @asynccontextmanager
-async def lifespan(_):
+async def lifespan(app: FastAPI):
     """إدارة دورة حياة التطبيق"""
+    # بدء التشغيل
     try:
-        await startup()
-        yield
-    finally:
-        await shutdown()
-
-async def verify_tables_exist():
-    """التحقق من وجود الجداول الأساسية"""
-    try:
-        async with async_engine.connect() as conn:
-            inspector = await conn.run_sync(inspect)
-            required_tables = [
-                'users', 
-                'downloads', 
-                'user_points', 
-                'claimed_rewards'
-            ]
-            
-            missing = [
-                table 
-                for table in required_tables 
-                if not inspector.has_table(table)
-            ]
-            
-            if missing:
-                raise RuntimeError(f"جداول مفقودة: {', '.join(missing)}")
-                
-    except Exception as e:
-        logger.error(f"فشل التحقق: {str(e)}")
-        raise
-
-async def startup():
-    """إجراءات بدء التشغيل"""
-    try:
-        logger.info("🚀 بدء عملية التهيئة...")
+        logger.info("🚀 بدء تشغيل تطبيق بوت التليجرام...")
         
-        # 1. تهيئة قاعدة البيانات
+        # تهيئة قاعدة البيانات
         await init_db()
+        logger.info("✅ تم تهيئة قاعدة البيانات")
         
-        # 2. التحقق من الجداول
-        await verify_tables_exist()
-        
-        # 3. اختبار الاتصال
-        async with get_db() as db:
-            await db.execute("SELECT 1")
-            logger.info("✅ اتصال قاعدة البيانات نشط")
-        
-        # 4. إعداد تطبيق التيليجرام
-        application = Application.builder().token(config.TELEGRAM_TOKEN).build()
+        # تهيئة بوت تليجرام
+        from handlers import setup_commands, setup_callbacks
+        application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
         setup_commands(application)
-        setup_messages(application)
         setup_callbacks(application)
-        logger.info("✅ تم إعداد handlers البوت")
+        app.state.application = application
+        app.state.webhook_manager = TelegramWebhookManager(application)
         
-        # 5. تشغيل المهام الخلفية
-        asyncio.create_task(background_tasks())
+        if config.ENV == "prod":
+            logger.info("🔄 إعداد Webhook في بيئة الإنتاج...")
+            await app.state.webhook_manager.setup_webhook()
+        else:
+            logger.info("💻 تشغيل في وضع التطوير المحلي")
         
-        return application
-        
-    except Exception as e:
-        logger.critical(f"فشل التشغيل: {str(e)}", exc_info=True)
-        raise
-
-async def background_tasks():
-    """المهام الدورية الخلفية"""
-    while True:
-        try:
-            # تحديث الإحصائيات
-            stats = await AnalyticsService.get_system_stats()
-            logger.debug(f"الإحصائيات: {stats}")
-            
-            # تنظيف المكافآت المنتهية
-            await reward_service.cleanup_expired_rewards()
-            
-            await asyncio.sleep(3600)  # كل ساعة
-            
-        except Exception as e:
-            logger.error(f"خطأ في المهام الخلفية: {str(e)}", exc_info=True)
-            await asyncio.sleep(60)
-
-async def shutdown():
-    """إجراءات إيقاف التشغيل"""
-    try:
-        logger.info("🛑 بدء عملية الإيقاف...")
-        await async_engine.dispose()
-        logger.info("✅ تم إغلاق اتصالات قاعدة البيانات")
-    except Exception as e:
-        logger.error(f"خطأ أثناء الإيقاف: {str(e)}", exc_info=True)
-
-async def run_polling():
-    """وضع التشغيل Polling"""
-    application = None
-    try:
-        application = await startup()
-        logger.info("🔃 بدء التشغيل في وضع Polling...")
-        await application.run_polling()
+        logger.info("✅ تم تهيئة التطبيق بنجاح")
+        yield
+    
+    # التنظيف عند الإيقاف
     finally:
-        if application:
-            await shutdown()
+        logger.info("🛑 إيقاف التطبيق...")
+        
+        # إغلاق اتصالات قاعدة البيانات
+        # لا نحتاج لإغلاق session في SQLAlchemy غير المتزامن
+        if not using_sqlite:
+            from database.session import async_engine
+            await async_engine.dispose()
+        
+        # إزالة webhook في بيئة الإنتاج
+        if config.ENV == "prod":
+            await app.state.webhook_manager.delete_webhook()
+            
+        logger.info("✅ تم إيقاف التطبيق بنجاح")
 
-async def run_webhook():
-    """وضع التشغيل Webhook"""
-    from webhooks.telegram import webhook_manager
-    application = None
-    try:
-        application = await startup()
-        logger.info("🌍 بدء التشغيل في وضع Webhook...")
-        await webhook_manager.setup()
-        await application.start()
-        await asyncio.Future()  # تشغيل دائم
-    finally:
-        if application:
-            await shutdown()
+# إنشاء تطبيق FastAPI
+app = FastAPI(
+    title="Video Hunter Bot API",
+    description="واجهة برمجة تطبيقات لبوت تحميل الفيديوهات",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# إعدادات CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# استيراد واجهات API
+from api import router
+app.include_router(router)
 
 if __name__ == "__main__":
-    try:
-        if config.ENV == "prod":
-            asyncio.run(run_webhook())
-        else:
-            asyncio.run(run_polling())
-    except KeyboardInterrupt:
-        logger.info("👋 تم الإيقاف بواسطة المستخدم")
-    except Exception as e:
-        logger.critical(f"خطأ غير متوقع: {str(e)}", exc_info=True)
+    # تحديد المنفذ من المتغيرات البيئية أو الإعدادات
+    port = int(os.environ.get("PORT", config.API_PORT))
+    
+    # تشغيل التطبيق
+    uvicorn.run(
+        "main:app",
+        host=config.API_HOST, 
+        port=port,
+        reload=config.ENV == "dev",
+        # استخدام SSL فقط إذا كانت ملفات الشهادات موجودة
+        ssl_keyfile=config.SSL_KEY_PATH if os.path.exists(config.SSL_KEY_PATH) else None,
+        ssl_certfile=config.SSL_CERT_PATH if os.path.exists(config.SSL_CERT_PATH) else None
+    )
